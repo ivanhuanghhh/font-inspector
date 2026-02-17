@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Font Inspector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Instrument Serif"', 'serif'],
+            mono: ['"IBM Plex Mono"', 'monospace'],
+            body: ['"DM Sans"', 'sans-serif'],
+          },
+          colors: {
+            surface: { 50: '#fafaf9', 100: '#f5f5f4', 800: '#1c1917', 900: '#141210', 950: '#0c0a09' },
+            accent: { 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706' },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0c0a09;
+      color: #e7e5e4;
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .drop-zone {
+      position: relative;
+      transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .drop-zone::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: conic-gradient(from 180deg, transparent 60%, #f59e0b33 75%, transparent 90%);
+      opacity: 0;
+      transition: opacity 0.4s;
+      z-index: -1;
+    }
+    .drop-zone:hover::before, .drop-zone.drag-over::before {
+      opacity: 1;
+      animation: rotate-glow 4s linear infinite;
+    }
+    .drop-zone.drag-over {
+      border-color: #f59e0b !important;
+      background: #f59e0b08 !important;
+      transform: scale(1.01);
+    }
+    @keyframes rotate-glow { to { filter: hue-rotate(30deg); } }
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    .stagger > * {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .stagger.visible > * { opacity: 1; transform: translateY(0); }
+    .stagger.visible > *:nth-child(1) { transition-delay: 0.05s; }
+    .stagger.visible > *:nth-child(2) { transition-delay: 0.1s; }
+    .stagger.visible > *:nth-child(3) { transition-delay: 0.15s; }
+    .stagger.visible > *:nth-child(4) { transition-delay: 0.2s; }
+    .char-cell {
+      transition: all 0.2s;
+      position: relative;
+    }
+    .char-cell:hover {
+      background: #f59e0b15;
+      transform: scale(1.15);
+      z-index: 10;
+      border-color: #f59e0b44;
+    }
+    .char-cell .tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%) scale(0.9);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .char-cell:hover .tooltip { opacity: 1; transform: translateX(-50%) scale(1); }
+    .waterfall-line { border-bottom: 1px solid #27272a; transition: background 0.2s; }
+    .waterfall-line:hover { background: #ffffff06; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    [contenteditable]:focus {
+      outline: none;
+      text-decoration-line: underline;
+      text-decoration-style: wavy;
+      text-decoration-color: #f59e0b44;
+      text-underline-offset: 6px;
+    }
+    .section-rule { height: 1px; background: linear-gradient(90deg, transparent, #f59e0b33 30%, #f59e0b33 70%, transparent); }
+    .glyph-card { transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+    .glyph-card:hover { background: #ffffff08; transform: translateY(-2px); box-shadow: 0 8px 24px -8px #00000060; }
+  </style>
+</head>
+<body class="font-body antialiased">
+
+  <header class="relative border-b border-white/5">
+    <div class="max-w-6xl mx-auto px-6 py-8 flex items-end justify-between">
+      <div>
+        <h1 class="font-display text-4xl md:text-5xl text-surface-50 tracking-tight">Font Inspector</h1>
+        <p class="font-mono text-xs tracking-widest uppercase text-zinc-500 mt-2">Upload · Analyze · Preview</p>
+      </div>
+      <div class="font-mono text-[10px] text-zinc-600 text-right hidden sm:block leading-relaxed">
+        TTF · OTF · WOFF<br>Powered by opentype.js
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 pb-32">
+    <section id="upload-section" class="py-16 md:py-24 transition-all duration-700">
+      <div id="drop-zone" class="drop-zone rounded-2xl border-2 border-dashed border-zinc-700/60 bg-zinc-900/40 flex flex-col items-center justify-center text-center cursor-pointer py-20 md:py-28 px-8" tabindex="0" role="button" aria-label="Upload font file">
+        <div id="dz-icon" class="mb-6 text-zinc-600">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="9" y1="15" x2="15" y2="15"/>
+          </svg>
+        </div>
+        <p id="dz-title" class="font-display text-2xl md:text-3xl text-zinc-300 mb-3">Drop your font file here</p>
+        <p id="dz-subtitle" class="font-mono text-sm text-zinc-500 mb-6">or click to browse — .ttf, .otf, .woff accepted</p>
+        <div id="dz-btn" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-zinc-800 border border-zinc-700 text-sm text-zinc-400 hover:text-accent-400 hover:border-accent-600/40 transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Choose file
+        </div>
+        <input type="file" id="file-input" accept=".ttf,.otf,.woff,.woff2" class="hidden">
+      </div>
+      <p id="error-msg" class="text-red-400 font-mono text-sm mt-4 text-center hidden"></p>
+    </section>
+
+    <div id="results" class="hidden"></div>
+  </main>
+
+  <footer class="border-t border-white/5 py-6">
+    <div class="max-w-6xl mx-auto px-6 flex items-center justify-between">
+      <p class="font-mono text-[10px] text-zinc-600">Font Inspector — All processing happens locally in your browser.</p>
+      <p class="font-mono text-[10px] text-zinc-600">No data is uploaded.</p>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text !== undefined) e.textContent = String(text);
+        return e;
+      };
+
+      const dropZone = $('drop-zone');
+      const fileInput = $('file-input');
+      const errorMsg = $('error-msg');
+      const uploadSection = $('upload-section');
+      const resultsDiv = $('results');
+
+      const getName = (rec) => {
+        if (!rec) return null;
+        if (typeof rec === 'string') return rec;
+        return rec.en || Object.values(rec)[0] || null;
+      };
+
+      const WEIGHT_MAP = { 100:'Thin',200:'ExtraLight',300:'Light',400:'Regular',500:'Medium',600:'SemiBold',700:'Bold',800:'ExtraBold',900:'Black' };
+      const WIDTH_MAP = { 1:'Ultra-condensed',2:'Extra-condensed',3:'Condensed',4:'Semi-condensed',5:'Normal',6:'Semi-expanded',7:'Expanded',8:'Extra-expanded',9:'Ultra-expanded' };
+      const weightName = (w) => WEIGHT_MAP[w] || ('Weight ' + w);
+      const widthName = (w) => WIDTH_MAP[w] || ('Width ' + w);
+      const fmtDate = (d) => { try { return d ? new Date(d).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : null; } catch { return String(d); } };
+      const ACCEPTED = ['.ttf','.otf','.woff','.woff2'];
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      dropZone.addEventListener('keydown', (e) => { if (e.key==='Enter'||e.key===' ') fileInput.click(); });
+      dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+      dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+      fileInput.addEventListener('change', (e) => { if(e.target.files[0]) handleFile(e.target.files[0]); });
+
+      function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }
+      function hideError() { errorMsg.classList.add('hidden'); }
+
+      async function handleFile(file) {
+        hideError();
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        if (!ACCEPTED.includes(ext)) { showError('Unsupported format "' + ext + '". Use .ttf, .otf, or .woff.'); return; }
+        try {
+          const buffer = await file.arrayBuffer();
+          const font = opentype.parse(buffer);
+          registerFont(buffer);
+          renderAll(font, file);
+        } catch (err) { console.error(err); showError('Failed to parse font: ' + err.message); }
+      }
+
+      let currentStyle = null;
+      function registerFont(buffer) {
+        if (currentStyle) currentStyle.remove();
+        const blob = new Blob([buffer], { type: 'font/opentype' });
+        const url = URL.createObjectURL(blob);
+        const name = 'preview-' + Date.now();
+        const s = document.createElement('style');
+        s.textContent = "@font-face { font-family: '" + name + "'; src: url('" + url + "'); }";
+        document.head.appendChild(s);
+        currentStyle = s;
+        document.documentElement.style.setProperty('--preview-font', name);
+      }
+
+      /* ── Build helpers ── */
+      function makeSection(cls) {
+        const sec = el('section', 'reveal py-12 ' + (cls||''));
+        return sec;
+      }
+      function makeRule() { return el('div', 'section-rule'); }
+      function makeSectionHeader(title, subtitle) {
+        const frag = document.createDocumentFragment();
+        const h = el('h3', 'font-display text-3xl text-surface-50 mb-2', title);
+        frag.appendChild(h);
+        if (subtitle) { const p = el('p', 'font-mono text-xs text-zinc-500 mb-8 tracking-wide', subtitle); frag.appendChild(p); }
+        return frag;
+      }
+
+      /* ── Main render ── */
+      function renderAll(font, file) {
+        uploadSection.className = 'py-8 md:py-10 transition-all duration-700';
+        dropZone.className = 'drop-zone rounded-2xl border-2 border-dashed border-zinc-700/60 bg-zinc-900/40 flex flex-col items-center justify-center text-center cursor-pointer py-8 px-8';
+        $('dz-icon').classList.add('hidden');
+        $('dz-title').classList.add('hidden');
+        $('dz-btn').classList.add('hidden');
+        $('dz-subtitle').textContent = 'Loaded: ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB) — drop another to replace';
+
+        resultsDiv.classList.remove('hidden');
+        resultsDiv.replaceChildren();
+
+        const parts = [
+          buildHero(font, file),
+          makeRule(),
+          buildStats(font),
+          makeRule(),
+          buildNameTable(font),
+          makeRule(),
+          buildTechnical(font, file),
+          makeRule(),
+          buildWaterfall(),
+          makeRule(),
+          buildParagraph(),
+          makeRule(),
+          buildCharMap(font),
+          makeRule(),
+          buildGlyphs(font),
+        ];
+        parts.forEach(p => resultsDiv.appendChild(p));
+
+        requestAnimationFrame(() => {
+          resultsDiv.querySelectorAll('.reveal').forEach((el, i) => setTimeout(() => el.classList.add('visible'), i * 80));
+          resultsDiv.querySelectorAll('.stagger').forEach((el, i) => setTimeout(() => el.classList.add('visible'), 200 + i * 80));
+        });
+      }
+
+      /* ── Hero ── */
+      function buildHero(font, file) {
+        const sec = makeSection();
+        const tag = el('p', 'font-mono text-[10px] tracking-[0.3em] uppercase text-accent-500 mb-4', 'Loaded Font');
+        sec.appendChild(tag);
+
+        const fullName = getName(font.names.fullName) || getName(font.names.fontFamily) || file.name;
+        const h = el('h2', 'text-5xl md:text-7xl lg:text-8xl text-surface-50 leading-[0.95] mb-4', fullName);
+        h.style.fontFamily = 'var(--preview-font), sans-serif';
+        sec.appendChild(h);
+
+        const family = getName(font.names.fontFamily) || '—';
+        const sub = getName(font.names.fontSubfamily) || '';
+        const ps = getName(font.names.postScriptName) || '—';
+        const meta = el('p', 'font-mono text-sm text-zinc-500 mt-4');
+        const s1 = el('span', 'text-zinc-400', family);
+        meta.appendChild(s1);
+        if (sub) {
+          meta.appendChild(el('span', 'text-zinc-600', ' / '));
+          meta.appendChild(el('span', 'text-zinc-500', sub));
+        }
+        meta.appendChild(el('span', 'text-zinc-700 mx-2', ' · '));
+        meta.appendChild(el('span', 'text-zinc-600', ps));
+        sec.appendChild(meta);
+        return sec;
+      }
+
+      /* ── Stats ── */
+      function buildStats(font) {
+        const sec = makeSection();
+        const os2 = font.tables.os2 || {};
+        const post = font.tables.post || {};
+        const stats = [
+          { label:'Glyphs', value: font.numGlyphs.toLocaleString(), icon:'◆' },
+          { label:'Weight', value: os2.usWeightClass ? weightName(os2.usWeightClass) : '—', icon:'▮' },
+          { label:'Units/Em', value: String(font.unitsPerEm), icon:'⊞' },
+          { label:'Fixed Pitch', value: post.isFixedPitch ? 'Yes (Mono)' : 'No (Proportional)', icon:'⊟' },
+        ];
+        const grid = el('div', 'stagger grid grid-cols-2 md:grid-cols-4 gap-4');
+        stats.forEach(s => {
+          const card = el('div', 'bg-zinc-900/60 border border-zinc-800/50 rounded-xl p-5 flex flex-col');
+          card.appendChild(el('span', 'text-accent-500 text-lg mb-3 opacity-60', s.icon));
+          card.appendChild(el('span', 'font-mono text-[10px] tracking-[0.2em] uppercase text-zinc-500 mb-1', s.label));
+          card.appendChild(el('span', 'text-xl text-surface-50 font-medium', s.value));
+          grid.appendChild(card);
+        });
+        sec.appendChild(grid);
+        return sec;
+      }
+
+      /* ── Name Table ── */
+      function buildNameTable(font) {
+        const sec = makeSection();
+        sec.appendChild(makeSectionHeader('Identification', 'Name table records'));
+        const fields = [
+          ['PostScript Name', font.names.postScriptName],
+          ['Full Name', font.names.fullName],
+          ['Family', font.names.fontFamily],
+          ['Subfamily / Style', font.names.fontSubfamily],
+          ['Preferred Family', font.names.preferredFamily],
+          ['Preferred Subfamily', font.names.preferredSubfamily],
+          ['Unique ID', font.names.uniqueID],
+          ['Version', font.names.version],
+          ['Copyright', font.names.copyright],
+          ['Trademark', font.names.trademark],
+          ['Manufacturer', font.names.manufacturer],
+          ['Designer', font.names.designer],
+          ['Description', font.names.description],
+          ['Manufacturer URL', font.names.manufacturerURL],
+          ['Designer URL', font.names.designerURL],
+          ['License', font.names.license],
+          ['License URL', font.names.licenseURL],
+        ];
+        const wrap = el('div', 'space-y-0');
+        fields.forEach(([label, rec]) => {
+          const v = getName(rec);
+          if (!v) return;
+          const row = el('div', 'flex gap-4 py-3.5 border-b border-zinc-800/40 group hover:bg-white/[0.02] px-2 -mx-2 rounded transition-colors');
+          row.appendChild(el('span', 'font-mono text-xs text-zinc-500 w-44 shrink-0 pt-0.5', label));
+          const isUrl = v.startsWith('http://') || v.startsWith('https://');
+          if (isUrl) {
+            const a = document.createElement('a');
+            a.href = v;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.className = 'text-sm text-accent-500 hover:text-accent-400 underline underline-offset-2 break-all';
+            a.textContent = v;
+            row.appendChild(a);
+          } else {
+            row.appendChild(el('span', 'text-sm text-zinc-300 break-all', v));
+          }
+          wrap.appendChild(row);
+        });
+        sec.appendChild(wrap);
+        return sec;
+      }
+
+      /* ── Waterfall ── */
+      function buildWaterfall() {
+        const sec = makeSection();
+        sec.appendChild(makeSectionHeader('Type Specimen', 'Click any line to edit · Waterfall preview'));
+        const sizes = [10,12,14,16,20,24,32,40,48,64,80];
+        const text = 'The quick brown fox jumps over the lazy dog';
+        const wrap = el('div', 'space-y-0');
+        sizes.forEach(size => {
+          const row = el('div', 'waterfall-line flex items-baseline gap-4 py-4 px-2 -mx-2');
+          row.appendChild(el('span', 'font-mono text-[10px] text-zinc-600 w-12 shrink-0 text-right tabular-nums', size + 'px'));
+          const span = el('span', 'text-zinc-200 leading-tight flex-1 min-w-0', text);
+          span.contentEditable = 'true';
+          span.style.fontFamily = 'var(--preview-font), sans-serif';
+          span.style.fontSize = size + 'px';
+          row.appendChild(span);
+          wrap.appendChild(row);
+        });
+        sec.appendChild(wrap);
+        return sec;
+      }
+
+      /* ── Paragraph ── */
+      function buildParagraph() {
+        const sec = makeSection();
+        sec.appendChild(makeSectionHeader('Paragraph', 'Continuous reading preview'));
+        const p = el('div', 'text-lg md:text-xl leading-relaxed text-zinc-300 p-6 rounded-xl bg-zinc-900/50 border border-zinc-800/60 focus:border-accent-600/30 transition-colors',
+          'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick daft zebras jump! The five boxing wizards jump quickly. Sphinx of black quartz, judge my vow.');
+        p.contentEditable = 'true';
+        p.style.fontFamily = 'var(--preview-font), sans-serif';
+        sec.appendChild(p);
+        return sec;
+      }
+
+      /* ── Character Map ── */
+      function buildCharMap(font) {
+        const sec = makeSection();
+        const chars = [];
+        for (let i = 0; i < font.glyphs.length; i++) {
+          const g = font.glyphs.get(i);
+          if (g.unicode !== undefined && g.unicode >= 32) chars.push({ unicode: g.unicode, name: g.name || '' });
+        }
+        chars.sort((a,b) => a.unicode - b.unicode);
+
+        const header = document.createDocumentFragment();
+        const hRow = el('div', 'flex items-end justify-between mb-8');
+        const hLeft = document.createDocumentFragment();
+        hLeft.appendChild(el('h3', 'font-display text-3xl text-surface-50 mb-2', 'Character Map'));
+        hLeft.appendChild(el('p', 'font-mono text-xs text-zinc-500 tracking-wide', 'Supported glyphs · hover for details'));
+        const hDiv = el('div');
+        hDiv.appendChild(hLeft);
+        hRow.appendChild(hDiv);
+        hRow.appendChild(el('p', 'font-mono text-xs text-zinc-600', chars.length + ' characters'));
+        sec.appendChild(hRow);
+
+        const grid = el('div', 'grid gap-[1px] bg-zinc-800/30 rounded-xl overflow-hidden border border-zinc-800/50');
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(52px, 1fr))';
+        const maxDisplay = 600;
+        const displayed = chars.slice(0, maxDisplay);
+        displayed.forEach(c => {
+          const hex = 'U+' + c.unicode.toString(16).toUpperCase().padStart(4, '0');
+          const ch = String.fromCodePoint(c.unicode);
+          const cell = el('div', 'char-cell flex flex-col items-center justify-center bg-zinc-950 py-3 cursor-default');
+          const charSpan = el('span', 'text-xl text-zinc-200 mb-1', ch);
+          charSpan.style.fontFamily = 'var(--preview-font), sans-serif';
+          cell.appendChild(charSpan);
+          cell.appendChild(el('span', 'font-mono text-[8px] text-zinc-600', hex));
+          const tip = el('div', 'tooltip bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl');
+          tip.appendChild(el('p', 'font-mono text-[10px] text-accent-400 mb-0.5', hex));
+          if (c.name) tip.appendChild(el('p', 'font-mono text-[9px] text-zinc-400', c.name));
+          cell.appendChild(tip);
+          grid.appendChild(cell);
+        });
+        if (chars.length > maxDisplay) {
+          const more = el('div', 'col-span-full text-center py-4 font-mono text-xs text-zinc-600', '… and ' + (chars.length - maxDisplay) + ' more characters');
+          grid.appendChild(more);
+        }
+        sec.appendChild(grid);
+        return sec;
+      }
+
+      /* ── Glyph Outlines ── */
+      function buildGlyphs(font) {
+        const sec = makeSection();
+        sec.appendChild(makeSectionHeader('Glyph Outlines', 'Bezier paths rendered from the font'));
+        const grid = el('div', 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3');
+        const samples = 'AaBbGgQqRr&@0123456789'.split('');
+        samples.forEach(ch => {
+          const glyph = font.charToGlyph(ch);
+          if (!glyph || glyph.index === 0) return;
+          const card = el('div', 'glyph-card bg-zinc-900/60 border border-zinc-800/40 rounded-xl p-4 flex flex-col items-center');
+          const canvas = document.createElement('canvas');
+          const size = 120;
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = size * dpr;
+          canvas.height = size * dpr;
+          canvas.style.width = size + 'px';
+          canvas.style.height = size + 'px';
+          const ctx = canvas.getContext('2d');
+          ctx.scale(dpr, dpr);
+          const fontSize = 80;
+          const scale = fontSize / font.unitsPerEm;
+          const xMin = (glyph.xMin || 0) * scale;
+          const xMax = (glyph.xMax || font.unitsPerEm) * scale;
+          const glyphWidth = xMax - xMin;
+          const x = (size - glyphWidth) / 2 - xMin;
+          const y = size * 0.75;
+          ctx.strokeStyle = '#f59e0b22';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+          const path = glyph.getPath(x, y, fontSize);
+          path.fill = '#e7e5e4';
+          path.stroke = null;
+          path.draw(ctx);
+          card.appendChild(canvas);
+          const label = el('div', 'mt-3 text-center');
+          label.appendChild(el('span', 'text-sm text-zinc-300 block', ch));
+          label.appendChild(el('span', 'font-mono text-[9px] text-zinc-600 block mt-0.5', glyph.name || '—'));
+          label.appendChild(el('span', 'font-mono text-[9px] text-zinc-700 block', 'adv: ' + (glyph.advanceWidth || 0)));
+          card.appendChild(label);
+          grid.appendChild(card);
+        });
+        sec.appendChild(grid);
+        return sec;
+      }
+
+      /* ── Technical ── */
+      function buildTechnical(font, file) {
+        const sec = makeSection();
+        sec.appendChild(makeSectionHeader('Technical Details', 'Metrics & table info'));
+        const os2 = font.tables.os2 || {};
+        const head = font.tables.head || {};
+        const post = font.tables.post || {};
+        const sections = [
+          { title:'Metrics', rows: [
+            ['Units per Em', font.unitsPerEm], ['Ascender', font.ascender], ['Descender', font.descender],
+            ['Line Gap', os2.sTypoLineGap ?? '—'], ['Cap Height', os2.sCapHeight ?? '—'], ['x-Height', os2.sxHeight ?? '—'],
+          ]},
+          { title:'Classification', rows: [
+            ['Weight Class', os2.usWeightClass ? os2.usWeightClass + ' (' + weightName(os2.usWeightClass) + ')' : '—'],
+            ['Width Class', os2.usWidthClass ? os2.usWidthClass + ' (' + widthName(os2.usWidthClass) + ')' : '—'],
+            ['Italic Angle', post.italicAngle ?? '—'], ['Fixed Pitch', post.isFixedPitch ? 'Yes' : 'No'],
+            ['Underline Pos', post.underlinePosition ?? '—'], ['Underline Thickness', post.underlineThickness ?? '—'],
+          ]},
+          { title:'File Info', rows: [
+            ['Filename', file.name], ['File Size', (file.size/1024).toFixed(1) + ' KB'],
+            ['Total Glyphs', font.numGlyphs.toLocaleString()],
+            ['Created', fmtDate(head.created) || '—'], ['Modified', fmtDate(head.modified) || '—'],
+          ]},
+          { title:'Available Tables', rows: [
+            ['Tables', Object.keys(font.tables).join(', ')],
+          ]},
+        ];
+        const grid = el('div', 'grid md:grid-cols-2 gap-4');
+        sections.forEach(s => {
+          const card = el('div', 'bg-zinc-900/40 border border-zinc-800/40 rounded-xl p-5');
+          card.appendChild(el('h4', 'font-mono text-[10px] tracking-[0.2em] uppercase text-accent-500/70 mb-4', s.title));
+          s.rows.forEach(([k, v]) => {
+            const row = el('div', 'flex justify-between py-2 border-b border-zinc-800/30 last:border-0');
+            row.appendChild(el('span', 'font-mono text-xs text-zinc-500', k));
+            row.appendChild(el('span', 'font-mono text-xs text-zinc-300 text-right max-w-[60%] break-all', String(v)));
+            card.appendChild(row);
+          });
+          grid.appendChild(card);
+        });
+        sec.appendChild(grid);
+        return sec;
+      }
+    })();
+  </script>
+</body>
+</html>
