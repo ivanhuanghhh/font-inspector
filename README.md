@@ -4,6 +4,10 @@ Standalone HTML tool that parses uploaded font files and displays comprehensive 
 
 ## Usage
 
+Visit: 
+https://font-inspect.vercel.app
+
+Or in local:
 Open `font-inspector.html` in any modern browser. Drag-and-drop (or click to browse) a `.ttf`, `.otf`, or `.woff` file.
 
 ## What it shows
